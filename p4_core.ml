@@ -1,0 +1,3 @@
+type input =
+	| Continue
+	| Stop

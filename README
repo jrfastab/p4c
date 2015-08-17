@@ -1,0 +1,72 @@
+WIP (Work in progress):
+
+This is an initial draft of a P4 to C code that can be loaded into the kernel
+using LLVM eBPF target and additional support to generate match-interface header
+files.
+
+The first part of code creates C files with some attempt at making them human
+readable and debugable. These C files are eBPF compliant meaning they compile
+into eBPF using the LLVM frontend.
+
+The second part of code generates match-interface header files which can be
+used with the match-interface API and CLI here,
+
+	https://github.com/match-interface
+
+Not committed in this repository yet is a third piece which can take header
+files from match-interface and generate eBPF compliant C code. What this allows
+is generating hardware models from software models and vice-vera.
+
+On the short list more or less in the order I'm attacking them,
+
+	- Add enough action primitives to make this useful. The two I'm
+	  working on now are modify and add_header. This allows pushing
+	  encap headers such as vxlan.
+
+	- Specifically I want to add digests ASAP and attach those to eBPF
+	  prog maps so users can do things like "learn" build adaptive
+	  filters, etc. all without leaving the kernel space.
+
+	- Clean up the code. At the moment the code is a bit rough (ok
+	  its really rough) but it generates working parser code and
+	  basic count/drop action maps. Its also so lightly tested that
+	  I hestitate to make too many promisses except it loads with 'tc'
+	  and passes my basic count VIDs and drop invalid ones test.
+
+	- Fixup match-interface integration I broke it along the way and
+	  need to commit the match-interface backend that can load/work with
+	  the eBPF kernel bits.
+
+	- I "had" to deviate at places from "standard" p4.org spec to generate
+	  code that works. We will need to work some of these back into the
+	  standard or make the eBPF pieces more sophisticated so they can
+	  generate the correct code. The couple main issues are around
+	  'counters' and lack of typing mostly in the primitive actions.
+
+	- Need to check-in my test P4 files and write some more sophisticated
+	  ones. I want to have a OVS.p4 ASAP.
+
+	- Plug into fm10k hardware device which can support "maps" and a
+	  eBPF program. The eBPF program is read-only though which means
+	  we need some changes in the stack somewhere to work this out.
+
+	- Add support for the rest of the p4 spec. I currently skipped sections
+	  that I didn't find in my p4 versions.
+
+On the long list,
+
+	- Testing...
+
+	- P4 examples lets show useful and interesting bits.
+
+	- OVS switch-over? Can we push OVS onto this?
+
+	- Compiler could do interesting things with software/hardware pipelines
+	  like generate optimized code where software/hardware datapaths worked
+	  together. We could even generate the API on top that did the slicing.
+
+	- (insert item here)
+
+
+I'm hoping(!?) at least a good dent can be made in the short list over the next
+2-3 weeks. Ideally I would like to have it completed by then.
