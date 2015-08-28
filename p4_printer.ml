@@ -7,7 +7,9 @@ open P4_action
 
 module type P4_Printer = sig
 	val p4_pp_preamble : string
-	val p4_pp_action : P4_action.p4_action_primitive_ref list -> P4_action.p4_action_ref list -> string
+	val p4_pp_action : P4_action.p4_action_primitive_ref list -> P4_action.p4_action_ref list ->
+			   P4_table.p4_table_ref list -> P4_parser.p4_parser_ref list ->
+			   P4_counters.p4_counter list -> string
 	val p4_pp_header : P4_header.p4_header_ref list -> string
 	val p4_pp_header_type : P4_header_type.p4_header_type_ref list -> string
 	val p4_pp_table : P4_table.p4_table_ref list -> P4_parser.p4_parser_ref list ->
@@ -19,7 +21,9 @@ end
 
 module type P4_pp_printer = sig
 	val pp_preamble : string
-	val pp_action : P4_action.p4_action_primitive_ref list -> P4_action.p4_action_ref list -> string
+	val pp_action : P4_action.p4_action_primitive_ref list -> P4_action.p4_action_ref list ->
+			P4_table.p4_table_ref list -> P4_parser.p4_parser_ref list ->
+			P4_counters.p4_counter list -> string
 	val pp_header_type : P4_header_type.p4_header_type_ref list -> string
 	val pp_header : P4_header.p4_header_ref list -> string
 	val pp_table : P4_table.p4_table_ref list -> P4_parser.p4_parser_ref list ->
@@ -39,7 +43,7 @@ end
 
 module Make_Printer(P : P4_Printer) : P4_pp_printer = struct
 	let pp_preamble = P.p4_pp_preamble
-	let pp_action a = P.p4_pp_action a
+	let pp_action a p t pa cntrs = P.p4_pp_action a p t pa cntrs
 	let pp_header_type ht = P.p4_pp_header_type ht
  	let pp_header h = P.p4_pp_header h
 	let pp_table t = P.p4_pp_table t
@@ -48,7 +52,7 @@ module Make_Printer(P : P4_Printer) : P4_pp_printer = struct
 
 	let pp cntrs a ht h t p c acts =
 		let ps = pp_preamble in
-		let pa = pp_action a acts in
+		let pa = pp_action a acts t p cntrs in
 		let pht = (pp_header_type ht) in
 		let ph = (pp_header h) in
 		let pt = (pp_table t p cntrs acts) in

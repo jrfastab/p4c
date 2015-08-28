@@ -21,7 +21,7 @@ open P4_core
 %token PARSER
 %token EXTRACT SELECT SET_METADATA
 %token NEXT LATEST CURRENT
-%token RETURN PARSE_ERROR DEFAULT MASK PACKET
+%token RETURN PARSE_ERROR DEFAULT MASK PACKET KEYFIELD
 
 (* table tokens *)
 %token TABLE
@@ -457,6 +457,8 @@ action_param_list:
 	{ P4_Action_Arg_Counter_T counter}
 | PACKET; pkt = STRING
 	{ P4_Action_Arg_Packet_T pkt}
+| KEYFIELD; header = STRING; DOT; field = STRING;
+	{ P4_Action_Arg_KeyField_T (header, field)}
 
 (* Action Block *)
 action:

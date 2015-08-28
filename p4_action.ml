@@ -6,6 +6,7 @@ type p4_action_primitive_argument_type =
 	| P4_Action_Arg_Mask_T of string
 	| P4_Action_Arg_Counter_T of string
 	| P4_Action_Arg_Packet_T of string
+	| P4_Action_Arg_KeyField_T of string * string
 
 type p4_action_primitive_ref = {
 	p4_action_primitive_ref : string;

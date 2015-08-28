@@ -71,6 +71,7 @@ let _p4_ebpf_common_headers =
 "#include <asm/types.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <asm/types.h>

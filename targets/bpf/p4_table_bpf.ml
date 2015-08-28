@@ -328,7 +328,7 @@ let _p4_table_cntrs_elems cntr tbls =
 
 let _p4_table_cntrs_size cntr =
 	(* Counters use u64 value on EBPF targets *)
-	"sizeof(long)"
+	"sizeof(struct count)"
 
 let _p4_table_cntrs_keys cntr =
 	(* Counters use u32 keys on EBPF targets *)
@@ -338,22 +338,32 @@ let _p4_table_cntrs_map cntr tbls =
 	let key_size = _p4_table_cntrs_keys cntr in
 	let value_size = _p4_table_cntrs_size cntr in
 	let max_entries = _p4_table_cntrs_elems cntr tbls in
-
+	
 	_p4_table_pp_bpf_elf_map cntr.counter_ref "BPF_MAP_TYPE_ARRAY"
 				 key_size value_size (string_of_int max_entries)
 
 let _p4_table_cntrs tbls cntrs =
+	let count_structs =
+"struct count {
+	unsigned long packets;
+	unsigned long bytes;
+};
+
+"
+	in
+
 	let maps = List.fold_left (fun s c ->
 		s ^ (_p4_table_cntrs_map c tbls)
 	) "" cntrs in
 
+(*
 	let ptrs =
 		"static struct bpf_elf_map *bpf_map_ptrs[] = {\n" ^
-			(List.fold_left (fun s c -> s ^ "\tmap_" ^ c.counter_ref ^ ",\n") "" (List.rev cntrs)) ^
+			(List.fold_left (fun s c -> s ^ "\t&map_" ^ c.counter_ref ^ ",\n") "" (List.rev cntrs)) ^
 		"};\n\n"
 	in
-
-	maps ^ ptrs
+*)
+	count_structs ^ maps
 
 let _p4_table_print_load_keys_ebpf tables =
 	List.map (fun t ->
@@ -390,7 +400,7 @@ let _p4_table_ebpf_eval_elf tables =
 			"\n" ^
 			stmts ^ "\n" ^
 			"\tif (value)\n" ^
-				"\t\tout = ((p4_eval_action(value, skb)) << 1) | 0x1;\n" ^
+				"\t\tout = ((p4_eval_action(key, value, skb)) << 1) | 0x1;\n" ^
 			"\treturn out;\n" ^
 		"}\n\n"
 	in
@@ -400,11 +410,13 @@ let _p4_table_ebpf_eval_elf tables =
 	List.fold_left (fun s f -> s ^ f) "" eval_funcs
 
 let _p4_table_ref_ebpf tables p cntrs actions =
+(*
 	let ebpf_cntrs = _p4_table_cntrs tables cntrs in
 	let ebpf_enum = _p4_table_map_enum_bpf_elf tables cntrs in
 	let ebpf_map = _p4_table_map_bpf_elf tables in
+*)
 	let ebpf_extract = _p4_table_extract_bpf_elf tables p in
-	let ebpf_flow_keys = _p4_table_flow_key_bpf_elf tables p in
+	(*let ebpf_flow_keys = _p4_table_flow_key_bpf_elf tables p in*)
 	let ebpf_table_eval = _p4_table_ebpf_eval_elf tables in
 
-	ebpf_extract ^ ebpf_flow_keys ^ ebpf_enum ^ ebpf_map ^ ebpf_cntrs ^ ebpf_table_eval
+	ebpf_extract ^ (*ebpf_flow_keys ^ ebpf_enum ^ ebpf_map ^ ebpf_cntrs ^*) ebpf_table_eval

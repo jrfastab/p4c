@@ -148,6 +148,8 @@ rule token = parse
     { COUNTER }
 | "packet"
     { PACKET }
+| "keyfield"
+    { KEYFIELD }
 | "type"
     { TYPE }
 | "direct"

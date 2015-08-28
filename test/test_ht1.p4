@@ -1,20 +1,30 @@
 primitive_action drop(void);
-primitive_action count(counter counter_ref, value index, packet skb);
+primitive_action count(counter c, value index, packet skb);
+primitive_action modify(field src, keyfield h.f);
 
 action drop(void) {
 	drop();
 }
 
-action count(counter cntr, value index, packet skb) {
-	count(cntr, index, skb);
+action count(counter c, value index, packet skb) {
+	count(c, index, skb);
 }
 
-action dropncount(counter cntr, value index, value foobar, packet skb) {
-	count(cntr, index, skb);
+action dropncount(counter c, value index, packet skb) {
+	count(c, index, skb);
 	drop();
 }
 
+action modify_vid(value src) {
+	modify(src, innervlan_vid);
+}
+
 counter vlan_pkts_by_vid {
+	type : packets;
+	direct : a;
+}
+
+counter vlan_pkts_by_prio {
 	type : packets;
 	direct : a;
 }
