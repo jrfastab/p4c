@@ -33,6 +33,13 @@ On the short list more or less in the order I'm attacking them,
 	  I hestitate to make too many promisses except it loads with 'tc'
 	  and passes my basic count VIDs and drop invalid ones test.
 
+	  Seeing OCAML appears to be a fairly obscure language for some
+	  I'm tempted to rewrite in Rust which also supports enough
+	  ADT and match syntax to make it very similar.
+
+	  Also I may just scrap this and do a clean rewrite to get everythin
+	  cleaned up.
+
 	- Fixup match-interface integration I broke it along the way and
 	  need to commit the match-interface backend that can load/work with
 	  the eBPF kernel bits.
