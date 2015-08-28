@@ -15,16 +15,11 @@ action dropncount(counter c, value index, packet skb) {
 	drop();
 }
 
-action modify_vid(value src) {
-	modify(src, innervlan_vid);
+action modify_dstmac(value dstmac) {
+	modify(dstmac, linuxethernet_dstmac);
 }
 
 counter vlan_pkts_by_vid {
-	type : packets;
-	direct : a;
-}
-
-counter vlan_pkts_by_prio {
 	type : packets;
 	direct : a;
 }
@@ -46,64 +41,57 @@ header_type ethernett {
 	}
 }
 
-header vlant innervlan;
-header ethernett ethernet;
+header vlant linuxvlan;
+header ethernett linuxethernet;
 
 table a {
-      reads { innervlan.pcp : exact ; innervlan.vid : exact; }
+      reads { linuxvlan.pcp : exact ; linuxvlan.vid : exact; }
       actions { drop; count;} 
       size : 256;
 };
 
 table b {
-      reads { ethernet.srcmac : exact; innervlan.vid : exact ; }
-      actions { drop; } 
+      reads { linuxethernet.srcmac : exact; linuxvlan.vid : exact ; }
+      actions { modify_dstmac; drop; } 
       size : 512;
 };
 
 table c {
-      reads { innervlan.vid : exact ; }
+      reads { linuxvlan.vid : exact ; }
       actions { drop; } 
       size : 1024;
 };
 
 table d {
-      reads { ethernet.dstmac : exact ; innervlan.cfi : exact ; innervlan.vid : exact ; }
+      reads { linuxethernet.dstmac : exact ; linuxvlan.cfi : exact ; linuxvlan.vid : exact ; }
       actions { drop; } 
       size : 2048;
 };
 
 table e {
-      reads { innervlan.vid : exact ; }
+      reads { linuxvlan.vid : exact ; }
       actions { drop; } 
       size : 4096;
 };
 
 control ingress {
-	apply(a) {
-		hit {
-			apply(b);
-		}
-		miss {
-			apply(c);
-		}
-	}
-
+	apply(a);
+	apply(b);
+	apply(c);
 	apply(e);
 }
 
 parser parsevlan {
-	extract(innervlan);
+	extract(linuxvlan);
 	return ingress;
 };
 
 parser parseethernet {
-	extract(ethernet);
+	extract(linuxethernet);
 	return select(latest.ethertype) {
-		08100 : return parsevlan;
-		08200 : return parsevlan;
-		08400 : return parsevlan;
-		default : return ingress;
+		0x08100 : return parsevlan;
+		0x08200 : return parsevlan;
+		0x08400 : return parsevlan;
 	};
 };
 

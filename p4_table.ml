@@ -47,3 +47,23 @@ let p4_get_table name =
 
 let p4_add_table t =
 	p4_tables := (t :: !p4_tables)
+
+(* P4 helper routines *)
+let p4_reads_largest_first a b =
+	let a_t = match a.field_or_masked_ref with
+	| Field_ref_header h -> raise (Failure "header not supported")
+	| Field_ref_field (h, f) ->
+		(p4_get_instance_field h f).bitwidth
+	| Field_ref_mask (h, f, m) -> 
+		(p4_get_instance_field h f).bitwidth
+	in
+
+	let b_t = match b.field_or_masked_ref with
+	| Field_ref_header h -> raise (Failure "header not supported")
+	| Field_ref_field (h, f) ->
+		(p4_get_instance_field h f).bitwidth
+	| Field_ref_mask (h, f, m) -> 
+		(p4_get_instance_field h f).bitwidth
+	in
+
+	if b_t > a_t then 1 else -1

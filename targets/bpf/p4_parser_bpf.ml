@@ -20,15 +20,27 @@ let _p4_parser_is_needed_key k =
 	end
 
 let _p4_parser_print_classifier_header_ebpf =
-	"__section(\"classifier\") int cls_main(struct __sk_buff *skb)\n" ^
-	"{\n" ^
-		"\tuint32_t offset = 0;\n" ^
-		"\tstruct p4_extract_flow_keys key = {0};\n" ^ 
-		"\n"
+"__section(\"classifier\") int cls_main(struct __sk_buff *skb)
+{
+	uint32_t offset = 0;
+	struct p4_extract_flow_keys key = {0};
+	struct p4_header_ptrs_t headers = {0};
+
+"
 
 let _p4_parser_print_classifier_end_ebpf =
-	"\treturn control_ingress(&key, skb);\n" ^
-	"}"
+"	
+	skb->mark = control_ingress(&key, &headers, skb);
+	return TC_ACT_UNSPEC;
+}
+
+__section(\"action-mark\") int act_mark_main(struct __sk_buff *skb)
+{
+	return skb->mark;
+}
+
+char __license[] __section(\"license\") = \"GPL\";
+"
 
 let _p4_parser_print_classifier_calls_ebpf calls =
 	List.fold_right(fun s c -> s ^ c) (List.rev(calls)) ""
@@ -73,7 +85,7 @@ let _p4_parser_nodes nodes =
 
 		let node_str =
 		if (String.compare node ingress) != 0 then
-			"\t\tp4_parser_" ^ node ^ "(key, skb, offset);\n"
+			"\t\tp4_parser_" ^ node ^ "(key, headers, skb, offset);\n"
 		else
 			""
 		in
@@ -106,7 +118,7 @@ let _p4_parser_nodes nodes =
 				begin
 				match e_or_s with
 				| Extract e ->
-					("\tp4_extract_header_" ^ e.instance ^ "(key, skb, offset);\n\n", e.instance) 
+					("\tp4_extract_header_" ^ e.instance ^ "(key, headers, skb, offset);\n\n", e.instance) 
 				| Set s ->
 					raise (Failure "bpf does not support set parser block yet\n")
 				end
@@ -121,7 +133,7 @@ let _p4_parser_nodes nodes =
 				| State_function extract ->
 					let node_str =
 						if (String.compare extract ingress) != 0 then
-							"\tp4_parser_" ^ extract ^ "(key, skb, offset);\n"
+							"\tp4_parser_" ^ extract ^ "(key, headers, skb, offset);\n"
 						else
 							""
 					in
@@ -138,7 +150,7 @@ let _p4_parser_nodes nodes =
 		let (e, latest) = extract in
 		let s = switch_case latest in 
 
-		"static inline void p4_parser_" ^ p.parser_ref ^ "(struct p4_extract_flow_keys *key, struct __sk_buff *skb, uint32_t *offset)\n" ^
+		"static inline void p4_parser_" ^ p.parser_ref ^ "(struct p4_extract_flow_keys *key, struct p4_header_ptrs_t *headers, struct __sk_buff *skb, uint32_t *offset)\n" ^
 		"{\n" ^
 		e ^ s ^
 		"}\n\n"
@@ -190,21 +202,46 @@ let _p4_parser_ebpf p calls =
 	in
 
 	let _p4_parser_extract_fields htype instance_ref =
-		List.fold_left(
-		fun s f ->
-			let k = instance_ref ^ f.field in
+		(* Linux puts 802.1Q header in OOB skb data fields so we need to
+		 * fixup the 802.1Q headers and L2 Ethernet header parsing to
+		 * to use the metadata.
+		 *)
+		let (load_keys, new_offset) =
+			if p4_instance_is_ethernet instance_ref then
+				p4_instance_linux_ethernet_print
+			else if p4_instance_is_vlan instance_ref then
+				p4_instance_linux_vlan_print
+			else
+				let load_keys' = List.fold_left(
+				fun s f ->
+					let k = instance_ref ^ f.field in
+	
+					match _p4_parser_is_needed_key k with
+					| true -> s ^ (_p4_parser_extract_field_print instance_ref htype.header_type_ref f)
+					| false -> s
+				) "" htype.header_type.fields in
 
-			match _p4_parser_is_needed_key k with
-			| true -> s ^ (_p4_parser_extract_field_print instance_ref htype.header_type_ref f)
-			| false -> s
-		) "" htype.header_type.fields 
+				let load_keys = try 
+					let exists = List.find (fun header ->
+						if (String.compare (header) instance_ref) == 0 then true else false
+					) !P4_actions_bpf.p4_header_mods  in
+					load_keys' ^ "\tp4_header_ptrs.linuxethernet = *offset;\n"
+					with | Not_found -> load_keys'
+				in
+
+				let new_offset = _p4_parser_header_offset htype in
+
+				(load_keys', new_offset)
+		in
+
+		(load_keys, new_offset)
 	in
 
 	let p4_parser_extract_header_print hdr stmts calls =
-		let call = "\tp4_extract_header_" ^ hdr ^ "(&key, skb, &offset);\n" 
+		let call = "\tp4_extract_header_" ^ hdr ^ "(&key, headers, skb, &offset);\n" 
 		in
 		let func =
-"static inline void p4_extract_header_" ^ hdr ^ "(struct p4_extract_flow_keys *key, struct __sk_buff *skb, uint32_t *offset)\n" ^
+"static inline void p4_extract_header_" ^ hdr ^ "(struct p4_extract_flow_keys *key, struct p4_header_ptrs_t *headers, struct __sk_buff *skb, uint32_t *offset)\n" ^
 "{\n" ^
 	stmts ^
 "}\n\n"
@@ -244,8 +281,7 @@ let _p4_parser_ebpf p calls =
 					raise (Failure err_str)
 				in
 
-				let load_keys = _p4_parser_extract_fields htype instance in
-				let new_offset = _p4_parser_header_offset htype in
+				let (load_keys, new_offset) = _p4_parser_extract_fields htype instance in
 
 				p4_parser_extract_header_print instance (load_keys ^ new_offset) calls
 			| Set s ->
@@ -279,9 +315,9 @@ let rec p4_parser_control_case_list action_case =
 and p4_parser_control_block_stmt stmt =
 	match stmt with
 	| Apply_table_call call ->
-		"hit = p4_eval_table_" ^ call ^ "(key, skb);\n"
+		"hit = p4_eval_table_" ^ call ^ "(key, headers, skb);\n"
 	| Apply_and_select_block select ->
-		"hit = p4_eval_table_" ^ select.control_table ^ "(key, skb);\n" ^
+		"hit = p4_eval_table_" ^ select.control_table ^ "(key, headers, skb);\n" ^
 		begin
 		match select.control_case_list with
 		| Action_case action_case ->
@@ -296,16 +332,20 @@ and p4_parser_control_block b =
 		p4_parser_control_block_stmt stmt
 
 let _p4_parser_control_block block =
-	List.fold_left (fun s stmt -> s ^ "\t" ^ (p4_parser_control_block_stmt stmt)) "" block
+	let if_hit_goto =
+"	if (hit & (~1)) goto done;\n\n"
+	in
+	List.fold_left (fun s stmt -> s ^ "\t" ^ (p4_parser_control_block_stmt stmt) ^ if_hit_goto) "" block
 
 let _p4_parser_control control =
 	List.fold_left (fun s ctrl ->
 		s ^
-		"static inline int control_" ^ ctrl.control_ref ^ "(struct p4_extract_flow_keys *key, struct __sk_buff *skb)\n" ^
+		"static inline int control_" ^ ctrl.control_ref ^ "(struct p4_extract_flow_keys *key, struct p4_header_ptrs_t *headers, struct __sk_buff *skb)\n" ^
 		"{\n" ^
 			"\tuint32_t hit = 0;\n\n" ^
 			_p4_parser_control_block ctrl.control_block ^
-			"\treturn hit;\n" ^
+		"done:\n" ^
+			"\treturn (hit >> 1);\n" ^
 		"}\n\n"
 	) "" control
 
@@ -316,7 +356,7 @@ let _p4_parser_ref_ebpf t p c =
 			(s ^ stmt, calls)
 		) ("",[]) (List.rev p) in
 
-	let classifier_extract = "\tp4_parser_start(&key, skb, &offset);\n" in
+	let classifier_extract = "\tp4_parser_start(&key, &headers, skb, &offset);\n" in
 	let classifier_start = _p4_parser_print_classifier_header_ebpf in
 	let control = _p4_parser_control c in
 	let classifier_end = _p4_parser_print_classifier_end_ebpf in

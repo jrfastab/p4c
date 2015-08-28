@@ -46,7 +46,12 @@ let p4_get_header_type name =
 	let is_header a =
 		if ((String.compare a.header_type_ref name) == 0) then true else false
 	in
-	List.find (is_header) !p4_header_types
+	try List.find (is_header) !p4_header_types
+	with
+	| Not_found ->
+		let errstr = Printf.sprintf "p4_get_header_type: Not_found: %s" name in
+		raise (Failure errstr)
+
 
 let p4_get_field header field =
 	let is_field f =
@@ -55,7 +60,11 @@ let p4_get_field header field =
 	let h = p4_get_header_type header in
 	let fields = h.header_type.fields in
 
-	List.find (is_field) fields
+	try List.find (is_field) fields
+	with
+	| Not_found ->
+		let errstr = Printf.sprintf "p4_get_field: Not_found: %s.%s" header field in
+		raise (Failure errstr)
 
 let rec p4_header_type_abs_fields fields fs offset =
 	match fields with
@@ -74,7 +83,7 @@ let rec p4_header_type_abs_fields fields fs offset =
 let p4_header_type_ref_abs_offsets h =
 	{ header_type_ref = h.header_type_ref;
 	  header_type = {
-		fields = p4_header_type_abs_fields h.header_type.fields [] 0;
+		fields = p4_header_type_abs_fields (h.header_type.fields) [] 0;
 		length = h.header_type.length;
 		max = h.header_type.max;
 	  }

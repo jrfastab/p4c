@@ -13,7 +13,8 @@ module type P4_Printer = sig
 	val p4_pp_header : P4_header.p4_header_ref list -> string
 	val p4_pp_header_type : P4_header_type.p4_header_type_ref list -> string
 	val p4_pp_table : P4_table.p4_table_ref list -> P4_parser.p4_parser_ref list ->
-			  P4_counters.p4_counter list ->  P4_action.p4_action_ref list -> string
+			  P4_counters.p4_counter list ->  P4_action.p4_action_ref list ->
+			  P4_header.p4_header_ref list -> string
 	val p4_pp_parser : P4_table.p4_table_ref list -> P4_parser.p4_parser_ref list ->
 			   P4_control.p4_control_ref list -> string
 	val p4_pp_control : P4_control.p4_control_ref list -> string
@@ -27,7 +28,8 @@ module type P4_pp_printer = sig
 	val pp_header_type : P4_header_type.p4_header_type_ref list -> string
 	val pp_header : P4_header.p4_header_ref list -> string
 	val pp_table : P4_table.p4_table_ref list -> P4_parser.p4_parser_ref list ->
-		       P4_counters.p4_counter list -> P4_action.p4_action_ref list -> string
+		       P4_counters.p4_counter list -> P4_action.p4_action_ref list ->
+		       P4_header.p4_header_ref list -> string
 	val pp_parser : P4_table.p4_table_ref list -> P4_parser.p4_parser_ref list ->
 			P4_control.p4_control_ref list -> string
 	val pp_control : P4_control.p4_control_ref list -> string
@@ -55,9 +57,9 @@ module Make_Printer(P : P4_Printer) : P4_pp_printer = struct
 		let pa = pp_action a acts t p cntrs in
 		let pht = (pp_header_type ht) in
 		let ph = (pp_header h) in
-		let pt = (pp_table t p cntrs acts) in
+		let pt = (pp_table t p cntrs acts h) in
 		let pp = (pp_parser t p c) in
 		let pc = (pp_control c) in
 
-		ps ^ pa ^ pht ^ pt ^ pp ^ pc
+		ps ^ pa ^ pht ^ pt ^ pp ^ ph ^ pc
 end

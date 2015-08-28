@@ -6,7 +6,7 @@ open P4_header_type
 
 let _p4_control_stmt_jump_table_entry_match str l =
 	let _p4_print_apply x =
-		"\t{ .field = {0}, .node = " ^ x ^ "},\n"
+		"\t{ .field = {0}, .node = TABLE_" ^ String.uppercase x ^ "},\n"
 	in
 
 	let _p4_print_rel_op_e e0 =
@@ -152,8 +152,8 @@ let _p4_control_stmt_jump_table_entry_match str l =
 			| None -> ""
 		in
 
-		let instance = p4_get_instance_header f.header in
-		let field = p4_get_field instance.header_ref f.field in
+		let instance = p4_get_instance_header f.control_header in
+		let field = p4_get_field instance.header_ref f.control_field in
 
 		let bitwidth = match field.bitwidth with
 		| Int x when x < 9 -> "u8"
@@ -164,9 +164,9 @@ let _p4_control_stmt_jump_table_entry_match str l =
 		in
 		
 		"\t{ .field = {\n" ^
-		"\t\t    .instance = HEADER_INSTANCE_" ^ String.uppercase f.header ^ ",\n" ^
-		"\t\t    .header = HEADER_" ^ String.uppercase f.header ^ ",\n" ^
-		"\t\t    .field = HEADER_"^ String.uppercase f.header ^ "_" ^ String.uppercase f.field ^ ",\n" ^
+		"\t\t    .instance = HEADER_INSTANCE_" ^ String.uppercase f.control_header ^ ",\n" ^
+		"\t\t    .header = HEADER_" ^ String.uppercase f.control_header ^ ",\n" ^
+		"\t\t    .field = HEADER_"^ String.uppercase f.control_header ^ "_" ^ String.uppercase f.control_field ^ ",\n" ^
 		"\t\t    .mask_type = NET_MAT_FIELD_REF_ATTR_TYPE_" ^ "" ^ ",\n" ^
 		"\t\t    .type = NET_MAT_FIELD_REf_ATTR_TYPE_" ^ "" ^ ",\n" ^
 		"\t\t    .v." ^ "" ^ " = {\n" ^
@@ -209,19 +209,20 @@ let _p4_control_stmt_jump_table_match str hd l =
 
 	str ^
 *)
-	str ^
+	(*str ^*)
 	"static struct net_mat_jump_table tbl_node_" ^ name ^ "_jump[] = {\n" ^
 	_p4_control_stmt_jump_table_entry_match "" l
 	^ "\t{ .field = {0}, .node = 0},\n" ^
 	"};\n\n"
 
 let _p4_control_stmt_declaration_apply_match str b =
-	str ^
-	"static struct net_mat_tbl_node table_node_" ^ b ^ " = {\n" ^
-	"\t.uid = TABLE_" ^ String.uppercase b ^ ",\n" ^
-	"\t.flags = 0,\n" ^
-	"\t.jump = tbl_node_" ^ b ^ "_jump\n" ^
-	"};\n"
+	((fst str) ^ "\t&table_node_" ^ b ^ ",\n",
+	 (snd str) ^
+	 "static struct net_mat_tbl_node table_node_" ^ b ^ " = {\n" ^
+	 "\t.uid = TABLE_" ^ String.uppercase b ^ ",\n" ^
+	 "\t.flags = 0,\n" ^
+	 "\t.jump = tbl_node_" ^ b ^ "_jump\n" ^
+	 "};\n")
 
 let _p4_control_apply_and_select_match str b =
 	str
@@ -234,15 +235,16 @@ let _p4_control_stmt_declaration_match str hd =
 	| Apply_table_call x -> _p4_control_stmt_declaration_apply_match str x
 	| Apply_and_select_block x -> _p4_control_apply_and_select_match str x
 	| If_else_statement x -> _p4_control_if_else_match str x
-	| Control_fn_name x -> "TBD"
+	| Control_fn_name x -> ("TBD", "TBD")
 
-let rec _p4_control_stmt_match str b =
+let rec _p4_control_stmt_match (str : (string * string)) b =
 	match b with
 	| [] -> str
 	| hd::l ->
-		_p4_control_stmt_jump_table_match str hd l ^
-		_p4_control_stmt_declaration_match str hd ^
-		_p4_control_stmt_match str l
+		let jmp = _p4_control_stmt_jump_table_match str hd l in
+		let decl = _p4_control_stmt_declaration_match str hd in
+		_p4_control_stmt_match (fst decl, jmp ^ snd decl) l
+		
 (*
 let _p4_control_stmt_match b =
 	List.fold_left (fun str stmt ->
@@ -255,7 +257,17 @@ let _p4_control_stmt_match b =
 *)
 
 let _p4_control_match c =
-	_p4_control_stmt_match "" c.control_block
+	_p4_control_stmt_match ("", "") c.control_block
+	
 
 let _p4_control_ref_match c =
-	List.fold_left (fun s c -> s ^ _p4_control_match c) "" c
+	let (tbl_nodes', tbls) = List.fold_left (fun (x', y') c -> 
+					let (x, y) =  _p4_control_match c in
+					(x' ^ x, y' ^ y)) ("", "") c in
+	let tbl_nodes =
+		"static struct net_mat_tbl_node *bpf_tbl_nodes[] = {\n" ^
+		tbl_nodes' ^
+		"\tNULL,\n" ^
+		"};\n\n" in
+
+	tbls ^ tbl_nodes

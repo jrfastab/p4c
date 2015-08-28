@@ -84,21 +84,28 @@ let extract_print h f =
 	in
 
 	let offset = off / 8 in
-	let shift = off mod 8 in
 	let mask = (hex_of_ones w) in
 
 	begin
 	match w with
 	| w when w <= 8 ->
+		let shift = off mod 8 in
+
 		(pp_extract_dec "__u8") ^
 		(_p4_ebpf_primitive_mvu8 "skb" "off" offset shift mask)
 	| w when w <= 16 ->
+		let shift = off mod 16 in
+
 		(pp_extract_dec "__u16") ^
 		(_p4_ebpf_primitive_mvu16 "skb" "off" offset shift mask)
 	| w when w <= 32 ->
+		let shift = off mod 32 in
+
 		(pp_extract_dec "__u32") ^
 		(_p4_ebpf_primitive_mvu32 "skb" "off" offset shift mask)
 	| w when w <= 64 ->
+		let shift = off mod 64 in
+
 		(pp_extract_dec "__u64") ^
 		(_p4_ebpf_primitive_mvu64 "skb" "off" offset shift mask)
 	| w ->
@@ -218,13 +225,13 @@ let _p4_table_flow_key (s, e) t =
 	begin
 	match t.p4_table.reads with
 	| Some reads ->
-		List.fold_left (fun i r -> _p4_table_flow_key_get i r) ("","") (List.rev reads)
+		List.fold_left (fun i r -> _p4_table_flow_key_get i r) ("","") (List.sort p4_reads_largest_first reads)
 	| None ->
 		("", "")
 	end
 	in
 
-	((s ^ "struct p4_" ^ t.table_ref ^ "_flow_keys {\n" ^ s' ^ "};\n"), (e ^ e'))
+	((s ^ "struct __attribute__ ((__packed__)) p4_" ^ t.table_ref ^ "_flow_keys {\n" ^ s' ^ "};\n"), (e ^ e'))
 
 let _p4_parser_flow_keys p =
 	let _p4_parser_flow_keys_select latest s =
@@ -376,11 +383,17 @@ let _p4_table_print_load_keys_ebpf tables =
 				| Field_ref_header str ->
 					raise (Failure "field ref header unsupported")
 				| Field_ref_field (header, field) ->
-					s ^ "\t" ^ t.table_ref ^ "_keys." ^ header ^ "_" ^ field ^
-					    " = key->" ^ header ^ "_" ^ field ^ ";\n"
+					let w = (p4_get_instance_field header field).bitwidth in
+					let _type =  _p4_field_type_ebpf_to_string w in
+
+					s ^ "\t*(" ^ _type ^ "*)((__u8 *)&" ^ t.table_ref ^ "_keys + offsetof(struct p4_" ^ t.table_ref ^ "_flow_keys, " ^ header ^ "_" ^ field ^
+					    ")) = key->" ^ header ^ "_" ^ field ^ ";\n"
 				| Field_ref_mask (header, field, mask) ->
-					s ^ "\t" ^ t.table_ref ^ "_keys." ^ header ^ "_" ^ field ^
-					    " = keys->" ^ header ^ "_" ^ field ^ ";\n"
+					let w = (p4_get_instance_field header field).bitwidth in
+					let _type =  _p4_field_type_ebpf_to_string w in
+
+					s ^ "\t*(" ^ _type ^ "*)((__u8 *)&" ^ t.table_ref ^ "_keys + offsetof(struct p4_" ^ t.table_ref ^ "_flow_keys, " ^ header ^ "_" ^ field ^
+					    ")) = key->" ^ header ^ "_" ^ field ^ ";\n"
 			) "" r
 			^
 			"\tvalue = p4_map_lookup_elem(&map_" ^ t.table_ref ^ ", &" ^ t.table_ref ^ "_keys);\n"
@@ -392,7 +405,7 @@ let _p4_table_print_load_keys_ebpf tables =
 let _p4_table_ebpf_eval_elf tables =
 	let lookup_rule = _p4_table_print_load_keys_ebpf tables in
 	let eval_table tref stmts =
-		"static inline int p4_eval_table_" ^ tref ^ "(struct p4_extract_flow_keys *key, struct __sk_buff *skb)\n" ^
+		"static inline int p4_eval_table_" ^ tref ^ "(struct p4_extract_flow_keys *key, struct p4_header_ptrs_t *headers, struct __sk_buff *skb)\n" ^
 		"{\n" ^
 			"\tstruct p4_action_value *value;\n" ^
 			"\tstruct p4_" ^ tref ^ "_flow_keys " ^ tref ^ "_keys = {0};\n" ^
@@ -400,7 +413,7 @@ let _p4_table_ebpf_eval_elf tables =
 			"\n" ^
 			stmts ^ "\n" ^
 			"\tif (value)\n" ^
-				"\t\tout = ((p4_eval_action(key, value, skb)) << 1) | 0x1;\n" ^
+				"\t\tout = ((p4_eval_action(key, headers, value, skb)) << 1) | 0x1;\n" ^
 			"\treturn out;\n" ^
 		"}\n\n"
 	in
@@ -409,7 +422,7 @@ let _p4_table_ebpf_eval_elf tables =
 
 	List.fold_left (fun s f -> s ^ f) "" eval_funcs
 
-let _p4_table_ref_ebpf tables p cntrs actions =
+let _p4_table_ref_ebpf tables p cntrs actions hdrs =
 (*
 	let ebpf_cntrs = _p4_table_cntrs tables cntrs in
 	let ebpf_enum = _p4_table_map_enum_bpf_elf tables cntrs in

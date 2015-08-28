@@ -59,18 +59,27 @@ let _p4_ebpf_primitive_mvu32 skb offv off shift mask =
 
 	_p4_ebpf_primitive_mvu_template lside rside mask 32 shift true
 
+let rec p4_find_last_bit bits n =
+	match ((bits land (1 lsl n)) lsr n) with
+	| 0 -> n
+	| 1 -> p4_find_last_bit bits (n + 1)
+	| _ -> raise (Failure "error in find last bit")
+
 let _p4_ebpf_primitive_mvu64 skb offv off shift mask =
 	let lside = "\treturn" in
 	let rside x = "p4_ebpf_load_word(" ^ skb ^ ", " ^ offv ^ " + " ^ string_of_int (off + x) in
 
-	let load32 = lside ^ " " ^ rside 0 ^ ") | ((" in
+	let load32 = lside ^ " (" ^ rside 0 ^ ") << 32) | ((" in
+	let rmask' = (mask lsr 32) in
+	let rmask = rmask' lsl (p4_find_last_bit rmask' 0) in
 
-	(_p4_ebpf_primitive_mvu_template load32 (rside 4) (mask lsr 32) 32 shift false) ^ ")" ^ " << 32);\n"
+	(_p4_ebpf_primitive_mvu_template load32 (rside 4) rmask 32 0 false) ^ ")" ^ ");\n"
 
 let _p4_ebpf_common_headers =
 "#include <asm/types.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -109,7 +118,13 @@ static void *(*p4_map_lookup_elem)(void *map, void *key) =
 	(void *) BPF_FUNC_map_lookup_elem;
 
 static void *(*p4_map_update_elem)(void *map, void *key, void *value, unsigned long long flags) =
-	(void *) BPF_FUNC_map_lookup_elem;
+	(void *) BPF_FUNC_map_update_elem;
+
+static int (*bpf_trace_printk)(const char *fmt, int fmt_size, ...) =
+	(void *) BPF_FUNC_trace_printk;
+
+static int (*p4_skb_store_bytes)(void *skb, int offset, void *from, unsigned int len, unsigned long long flags) =
+	(void *) BPF_FUNC_skb_store_bytes;
 "
 
 let _p4_preamble_ebpf =

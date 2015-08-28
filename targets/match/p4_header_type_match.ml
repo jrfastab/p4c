@@ -79,8 +79,11 @@ let _p4_bitwidth_match = function
 	| Int x -> (string_of_int x)
 	| Unknown -> "0"
 
+let p4_field_match_str prefix f =
+	"static char " ^ f.field ^ "_" ^ prefix ^ "_str[] = \"" ^ f.field ^ "\";\n"
+
 let _p4_field_match p f =
-	"\t{ .name = " ^ f.field ^ ",\n" ^
+	"\t{ .name = " ^ f.field ^ "_" ^ p ^ "_str,\n" ^
 	"\t  .uid = HEADER_" ^ String.uppercase p ^ "_" ^ String.uppercase f.field ^ ",\n" ^
 	"\t  .bitwidth = " ^ _p4_bitwidth_match f.bitwidth ^ ",},\n"
 
@@ -103,6 +106,8 @@ let rec _p4_field_length_match = function
 		_p4_field_length_op_match fop ^
 		_p4_field_length_match fl2
 *)
+let p4_fields_match_str prefix xs =
+	List.fold_left (fun str x -> str ^ p4_field_match_str prefix x) "" xs
 
 let _p4_fields_match p xs =
 	List.fold_left (fun str x -> str ^ _p4_field_match p x) "" xs
@@ -120,6 +125,9 @@ let _p4_max_match = function
 	| None -> ""
 *)
 
+let p4_header_type_ref_strings prefix x =
+	p4_fields_match_str prefix x.fields	
+
 let _p4_header_type_ref_match prefix x =
 	_p4_fields_match prefix x.fields
 
@@ -134,16 +142,35 @@ let _p4_header_type_match (x : p4_header_type_ref) =
 	_p4_header_type_match_defines x.header_type_ref x.header_type ^
 	"};\n\n" ^
 
+	p4_header_type_ref_strings x.header_type_ref x.header_type ^
+
 	"static struct net_mat_field " ^ x.header_type_ref ^ "_fields[] = {\n" ^
 	_p4_header_type_ref_match x.header_type_ref x.header_type ^ 
 	"};\n\n" ^
 
-	"static struct net_mat_hdr " ^ x.header_type_ref ^ " {\n" ^
+	"static struct net_mat_hdr " ^ x.header_type_ref ^ " = {\n" ^
 	"\t.name = " ^ x.header_type_ref ^ "_str,\n" ^
 	"\t.uid = HEADER_" ^ String.uppercase x.header_type_ref ^ ",\n" ^
 	"\t.field_sz = ARRAY_SIZE(" ^ x.header_type_ref ^ "_fields),\n" ^
 	"\t.fields = " ^ x.header_type_ref ^ "_fields,\n" ^
 	"};\n"
 
+let p4_header_type_match_list h =
+	"\t&" ^ h.header_type_ref ^ ",\n"
+
+let p4_header_type_match_enum h =
+	"\tHEADER_" ^ String.uppercase h.header_type_ref ^ ",\n"
+
 let _p4_header_type_ref_match x =
-	List.fold_left (fun s t -> s ^ _p4_header_type_match t) "" x
+	let enums' = List.fold_left (fun s h -> s ^ p4_header_type_match_enum h) "" x in
+	let defs = List.fold_left (fun s t -> s ^ _p4_header_type_match t) "" x in
+	let mat_hdr_list' = List.fold_left (fun s h -> s ^ p4_header_type_match_list h) "" x in
+
+	let enums = "enum bpf_header_ids {\n" ^ "\tHEADER_UNSPEC,\n" ^ enums' ^ "};\n\n" in
+	let mat_hdr_list =
+		"static struct net_mat_hdr *bpf_header_list[] = {\n" ^
+		mat_hdr_list' ^
+		"\tNULL,\n" ^
+		"};\n\n" in
+
+	enums ^ defs ^ mat_hdr_list

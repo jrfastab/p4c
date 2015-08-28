@@ -188,6 +188,8 @@ rule token = parse
     { STAR }
 | '!'
     { EXCLAMATION }
+| "0x" ['0' - '9' 'a' - 'f' 'A' - 'F']+
+    { INT (int_of_string (Lexing.lexeme lexbuf)) }
 | ['0'-'9']+ as i
     { INT (int_of_string i) }
 | ['a'-'z' '_']+ as s

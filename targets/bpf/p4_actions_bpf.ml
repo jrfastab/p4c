@@ -3,6 +3,10 @@ open P4_header
 open P4_header_type
 open P4_counters
 
+(* Track the header modify keys needed from parser *)
+let p4_header_mods : ((string list) ref) = ref []
+let p4_add_header_mod h = p4_header_mods := (h :: !p4_header_mods)
+
 let p4_actions_bpf_types =
 "
 struct field_value {
@@ -88,6 +92,7 @@ let p4_actions_bpf_codes actions =
 	) "" actions in
 
 	"enum {\n" ^
+	"\tBPF_P4_ACTION_UNSPEC,\n" ^
 	codes ^
 	"};\n\n"
 
@@ -112,8 +117,8 @@ let p4_primitive_action_bpf (actions : p4_action_primitive_ref list) =
 	) "" actions
 
 let p4_action_value actions =
-	"struct p4_action_value {\n" ^
-	"\t__u8 action_code;\n" ^
+	"struct __attribute__ ((__packed__)) p4_action_value {\n" ^
+	"\t__u32 action_code;\n" ^
 	"\tunion {\n" ^
 	(List.fold_left (fun s a ->
 		match (List.hd a.p4_actions_args) with
@@ -204,10 +209,49 @@ let p4_action_to_struct action =
 	if (List.hd action_args) == None then
 		""
 	else
-		"struct p4_table_act_" ^ action.p4_action_ref ^ " {\n" ^
+		"struct __attribute__ ((__packed__)) p4_table_act_" ^ action.p4_action_ref ^ " {\n" ^
 		(List.fold_left (fun s a ->
 			s ^ (match a with | Some s -> "\t" ^ s ^ ";\n" | None -> "")) "" action_args) ^
 		"};\n\n"
+
+let p4_action_to_mode_header_field stmt_args =
+	match stmt_args with
+	| Some args ->
+		let mod_field = List.nth args 1 in
+		(* TBD ugly _ split to fake out type *)
+		let h_f = Str.split (Str.regexp_string "_") mod_field in
+		let h = p4_get_instance_header (List.hd h_f) in
+		let f = p4_get_field h.header_ref (List.hd (List.rev (h_f))) in
+
+		(h, f)
+	| None ->
+		raise (Failure "malformed modify action!")
+
+let p4_action_to_mod action =
+	match action.p4_actions_stmts with
+	| Some stmts -> 
+		begin
+		List.fold_left (fun s stmt ->
+			if (String.compare stmt.p4_action_stmt "modify") == 0 then
+				let (h, f) = p4_action_to_mode_header_field stmt.p4_action_stmt_args in
+
+				let decl = try
+					let exists = List.find (fun header ->
+						if (String.compare (header) h.header_instance_name) == 0 then true else false
+					) !p4_header_mods  in
+					""
+				with | Not_found ->
+					begin
+					p4_add_header_mod h.header_instance_name;
+					"\tint " ^ h.header_instance_name ^ ";\n"
+					end
+				in
+				decl
+			else
+				""
+		) "" stmts
+		end
+	| None -> ""
 
 let p4_action_value_structs actions =
 	let act_spec = List.fold_left (fun s a ->
@@ -215,7 +259,10 @@ let p4_action_value_structs actions =
 	) "" actions
 	in
 
-	act_spec
+	let act_modify_ptr' = List.fold_left (fun s a -> s ^ (p4_action_to_mod a)) "" actions in
+	let act_modify_ptr = "struct p4_header_ptrs_t {\n" ^ act_modify_ptr' ^ "};\n" in
+
+	act_spec ^ act_modify_ptr
 
 let p4_action_eval_args ref actions =
 	let act = List.find (fun a ->
@@ -225,7 +272,7 @@ let p4_action_eval_args ref actions =
 	let key = match act.p4_actions_stmts with
 		| Some stmts -> 
 			List.fold_left (fun s stmt ->
-				if (String.compare stmt.p4_action_stmt "modify") == 0 then ", key" else ""
+				if (String.compare stmt.p4_action_stmt "modify") == 0 then ", key, headers, skb" else ""
 			) "" stmts
 		| None -> ""
 	in
@@ -263,7 +310,7 @@ let p4_action_eval actions =
 	) "" actions
 	in
 
-	"static inline int p4_eval_action(struct p4_extract_flow_keys *key, struct p4_action_value *value, struct __sk_buff *skb)\n" ^
+	"static inline int p4_eval_action(struct p4_extract_flow_keys *key, struct p4_header_ptrs_t *headers, struct p4_action_value *value, struct __sk_buff *skb)\n" ^
 	"{\n" ^
 		"\tint out;\n\n" ^
 		"\tswitch (value->action_code) {\n" ^
@@ -280,7 +327,7 @@ let p4_action_function_args stmts action =
 		(if (String.compare (suffix) "") == 0 then "" else " ")
 	) "" stmts in
 
-	let key = if (String.compare suffix "") == 0 then "" else ", struct p4_extract_flow_keys *key" in
+	let key = if (String.compare suffix "") == 0 then "" else ", struct p4_extract_flow_keys *key, struct p4_header_ptrs_t *headers, struct __sk_buff *skb" in
 
 	let args_comma = List.mapi (fun i arg ->
 		arg ^ (if (i + 1 < List.length args) then ", " else "") ^ key
@@ -365,7 +412,7 @@ let p4_action_function_stmts action primitives cntrs =
   in
 
 	let args stmt action = match stmt.p4_action_stmt_args with
-		| None -> ("", "")
+		| None -> ("", [])
 		| Some args ->
       			let suffix = p4_action_arg_build_suffix args stmt in
 			let argmap = List.mapi (fun i arg ->
@@ -373,7 +420,7 @@ let p4_action_function_stmts action primitives cntrs =
 				(if (i + 1 < List.length args) then ", " else "")
 			) args in
 
-			(suffix, (List.fold_left (fun s a -> s ^ a) "" argmap))
+			(suffix, argmap)
 	in
 
 	let prestmt arg stmt =
@@ -387,11 +434,35 @@ let p4_action_function_stmts action primitives cntrs =
 	| None -> [] 
 	| Some stmts ->
 		List.map (fun stmt ->
-      			let (suffix, args_list) = args stmt action in
+      			let (suffix, args_list') = args stmt action in
 			let preamble = prestmt (match stmt.p4_action_stmt_args with |Some args -> List.hd args |None -> "") stmt in
+			let modify_stmt =
+				if (String.compare "modify" stmt.p4_action_stmt) == 0 then
+					let arg = match stmt.p4_action_stmt_args with | Some l -> l | None -> "" :: [] in
+					let (keyh, keyf) =
+						(let t = (Str.split (Str.regexp_string "_") (List.hd (List.rev arg))) in
+						(List.hd t, List.hd (List.tl t))) in
+					let offset = "headers->" ^ keyh in
+					let field = p4_get_instance_field keyh keyf in
+					let offheader = match field.offset_from_header with
+						| Int x -> x
+						| Unknown -> 0
+					in
+					let field_bytes = match field.bitwidth with
+						| Int x -> string_of_int (x / 8)
+						| Unknown -> "0"
+					in
+
+					"\tp4_skb_store_bytes(skb, " ^ offset ^ " + " ^ (string_of_int offheader)  ^ ", &" ^ (List.hd arg) ^ ", " ^ field_bytes ^ ", true);\n"
+				else
+					""
+			in
+
+			let args_list = List.fold_left (fun s a -> s ^ a) "" args_list' in
+
 			(suffix, preamble,
 			"\tout = p4_" ^ stmt.p4_action_stmt ^ "_action_intrinsic" ^
-			suffix ^ "(" ^ args_list ^ ");\n")
+			suffix ^ "(" ^ args_list ^ ");\n" ^ modify_stmt)
 		) stmts
 
 let p4_action_functions actions primitives cntrs =
