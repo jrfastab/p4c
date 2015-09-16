@@ -19,6 +19,11 @@ is generating hardware models from software models and vice-vera.
 
 On the short list more or less in the order I'm attacking them,
 
+	- The code is _so_ ugly and does absolutely stupid things and
+	  duplicate code runs wild. (fold_left yikes) I'll clean this
+	  up in the next days. Add some decorators and generic routines
+	  so everything isn't a bunch of map functions. 
+
 	- Add enough action primitives to make this useful. The two I'm
 	  working on now are modify and add_header. This allows pushing
 	  encap headers such as vxlan.
@@ -26,23 +31,6 @@ On the short list more or less in the order I'm attacking them,
 	- Specifically I want to add digests ASAP and attach those to eBPF
 	  prog maps so users can do things like "learn" build adaptive
 	  filters, etc. all without leaving the kernel space.
-
-	- Clean up the code. At the moment the code is a bit rough (ok
-	  its really rough) but it generates working parser code and
-	  basic count/drop action maps. Its also so lightly tested that
-	  I hestitate to make too many promisses except it loads with 'tc'
-	  and passes my basic count VIDs and drop invalid ones test.
-
-	  Seeing OCAML appears to be a fairly obscure language for some
-	  I'm tempted to rewrite in Rust which also supports enough
-	  ADT and match syntax to make it very similar.
-
-	  Also I may just scrap this and do a clean rewrite to get everythin
-	  cleaned up.
-
-	- Fixup match-interface integration I broke it along the way and
-	  need to commit the match-interface backend that can load/work with
-	  the eBPF kernel bits.
 
 	- I "had" to deviate at places from "standard" p4.org spec to generate
 	  code that works. We will need to work some of these back into the
@@ -62,7 +50,7 @@ On the short list more or less in the order I'm attacking them,
 
 On the long list,
 
-	- Testing...
+	- Tests directory
 
 	- P4 examples lets show useful and interesting bits.
 
